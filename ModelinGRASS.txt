@@ -1,0 +1,18 @@
+lasinfo blackrive.las
+v.in.lidar -t input=blackrive.las output=elev_black_be class_filter=2 -o
+v.in.lidar -t input=blackrive.las output=elev_black_1r return_filter=first -o
+
+g.region res=1 -ap
+r.in.lidar input=blackrive.las output=lid_be_1m class_filter=2 method=n
+r.in.lidar input=blackrive.las output=lid_1r_1m return_filter=first method=n
+
+v.surf.rst input=elev_black_be elevation=elev_black_be_1m npmin=120 segmax=25 dmin=1
+v.surf.rst input=elev_black_1r elevation=elev_black_1r_1m npmin=120 segmax=25 tension=100 smooth=0.5 
+dmin=1
+r.colors elev_black_be_1m color=elevation
+r.colors elev_black_be_1m color=elevation
+d.rast elev_black_be_1m
+d.rast elev_black_be_1m
+d.out.file DEM
+
+r.mapcalc "chm_lid = elev_black_1r_1m - elev_black_be_1m"
