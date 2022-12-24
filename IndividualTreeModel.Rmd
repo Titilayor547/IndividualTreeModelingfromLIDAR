@@ -1,0 +1,173 @@
+---
+title: "TreeModeling"
+output: html_document
+date: "2022-12-23"
+---
+
+***Setup a working directory***
+```{r}
+#setwd("~/Zoom") #Add new file directory to save new lidar file
+
+#ctg <- readLAScatalog("E:\\...........")# original clouds ##change path
+#print(ctg)
+#list(ctg)
+#plot(ctg)
+#ctg
+```
+
+***Read and load packages***
+```{r}
+library(tidyverse)
+library(lidR)
+library(sf) #Simple features for R
+#library(rgdal) #Bindings for the Geospatial data abstraction library
+#require(raster)
+#require(rgeos)
+#options(stringsAsFactors = FALSE)
+require(maptools)
+library(lidR)
+library(data.table)
+library("ggpubr")
+#arc.check_product()
+#library(whitebox)
+#library(future)
+#library("data.table")
+#library("writexl")
+library(terra)
+library(stars)
+library(dplyr)
+#library(spatialEco)
+#library(exactextractr)
+#library(arcgisbinding)
+#library(TreeLS)
+```
+
+```{r}
+#las<-readLAS("C:\\Users\\tttajude\\Research\\blackrive.las")
+las<-readLAS("C:\\Users\\tttajude\\Research\\blackrive.las")
+```
+
+***Check for consistency (Validation)***
+```{r}
+las_check (las)
+plot(las)
+```
+
+***Point Cloud Normalization***
+```{r}
+gnd <- filter_ground(las) #Filter the ground
+plot(gnd, size = 3, bg = "white", color = "Classification")
+```
+
+```{r}
+#The DTM was first created using inverse weighted distance interpolation method. 
+dtm <- rasterize_terrain(las, 1, knnidw())
+plot(dtm, col = gray(1:50/50))
+```
+
+```{r}
+nlas <- las - dtm #subtract the DTM from the LAS file
+plot(nlas, size = 4, bg = "white")
+```
+
+```{r}
+nlas1 <- normalize_height(las, knnidw()) #Direct nomalization of LAS File
+hist(filter_ground(nlas)$Z, breaks = seq(-0.6, 0.6, 0.01), main = "Ttt", xlab = "Elevation")
+```
+
+***Canopy Height Model***
+```{r}
+#The whole lidar point cloud CHM BEFORE NORMALIZATION
+chm <- rasterize_canopy(las, res = 2, algorithm = p2r(0.15))
+col <- height.colors(25)
+plot(chm, col = col)
+```
+
+```{r}
+#Fill empty points and compute CHM from normalized point cloud
+chm1 <- rasterize_canopy(nlas, res = 0.5, p2r(0.2, na.fill = tin()))
+plot(chm1, col = col)
+```
+
+```{r}
+chm2 <- rasterize_canopy(nlas, res = 5, algorithm = dsmtin(max_edge = 40))
+plot(chm2, col = col)
+```
+
+***Individual trees identification***
+```{r}
+#Define the crop extent
+#cropbox <- c(2227000,2228000,271500,2716000)
+#DEMcrop <- crop(chm,cropbox)
+#plot(DEMcrop)
+```
+
+```{r}
+#locate trees from point cloud
+ttops<-locate_trees(nlas,lmf(ws=25)) #ws = window size
+plot(chm1, col = height.colors(50)) 
+plot(sf::st_geometry(ttops), add = TRUE, pch = 3)#Plot located treetops from point cloud on CHM
+```
+
+```{r}
+#tree detection
+x <- plot(nlas, bg = "white", size = 2.7, pch = 1.5)
+add_treetops3d(x, ttops)
+plot
+```
+
+***Individual Tree segmentation***
+```{r}
+chm_p2r_05 <- rasterize_canopy(nlas, 0.5, p2r(subcircle = 0.2), pkg="terra") #0.5 meter resolution
+chm_p2r_1 <- rasterize_canopy(nlas, 1, p2r(subcircle = 0.2), pkg = "terra")  #1 meter resolution
+
+kernal<-matrix(1,3,3) #chm_p2r_05_smoothed<-terra::focal(chm_p2r_05,w=kernal,fun=median,na.rm=T)
+```
+
+```{r}
+# Pitfree with and without subcircle tweak
+chm_pitfree_05_1 <- rasterize_canopy(nlas, 0.5, pitfree(), pkg = "terra")
+chm_pitfree_05_2 <- rasterize_canopy(nlas, 0.5, pitfree(subcircle = 0.2), pkg = "terra")
+```
+
+```{r}
+#Compute a smoothed CHM
+chm_p2r_05_smoothed <- terra::focal(chm_p2r_05, w = kernel, fun = median, na.rm = TRUE)
+chm_p2r_1_smoothed <- terra::focal(chm_p2r_1, w = kernel, fun = median, na.rm = TRUE)
+```
+
+```{r}
+#Explored a couple of different window size for the LMF
+ttops_chm_p2r_05 <- locate_trees(chm_p2r_05, lmf(10))
+ttops_chm_p2r_1 <- locate_trees(chm_p2r_1, lmf(10))
+ttops_chm_pitfree_05_1 <- locate_trees(chm_pitfree_05_1, lmf(10))
+ttops_chm_pitfree_05_2 <- locate_trees(chm_pitfree_05_2, lmf(10))
+ttops_chm_p2r_05_smoothed <- locate_trees(chm_p2r_05_smoothed, lmf(25))
+ttops_chm_p2r_1_smoothed <- locate_trees(chm_p2r_1_smoothed, lmf(15))
+```
+
+```{r}
+algo <- dalponte2016(chm_p2r_05_smoothed, ttops_chm_p2r_05_smoothed)
+las3 <- segment_trees(nlas, algo) #segment point cloud
+plot(las3, bg = "white", size = 3, color = "treeID") #visualize trees
+```
+
+```{r}
+tree1 <- filter_poi(las3, treeID == 3) #view the segmented tree individuals
+plot(tree1, size = 8, bg = "white")
+```
+
+
+```{r}
+#install.packages("treetop")
+#install.packages("remotes")
+#install.packages("devtools")
+#library("devtools")
+#install_github("https://github.com/carlos-alberto-silva/weblidar-treetop", dependencies = TRUE)
+```
+
+***Visualize tree top from an open source website***
+```{r}
+library(treetop)
+launchApp(launch.browser = TRUE)
+```
